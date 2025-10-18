@@ -1,2 +1,16 @@
+@'
+# Go
+bin/
+*.exe
+*.out
+*.test
 
-go-practice3/expense.db
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+'@ > .gitignore
+
+git add .gitignore
