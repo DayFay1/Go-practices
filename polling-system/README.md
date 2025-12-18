@@ -88,7 +88,11 @@ Via local `migrate` binary:
 migrate -path internal/db/migrations -database "postgres://polling_user:polling_pass@localhost:5432/polling_db?sslmode=disable" up
 ```
 
-Tables: `users`, `polls`, `options`, `votes`, `aggregated_results`, indexes, and a seeded admin (`admin@example.com`).
+Tables: `users`, `polls`, `options`, `votes`, `aggregated_results`, indexes, and a seeded admin:
+- email: `admin@example.com`
+- password: `admin123` (demo only; change it for real deployments)
+
+If you pulled new changes and already migrated ранее, просто прогоните `docker compose run --rm migrate up` ещё раз.
 
 ## Run the API locally
 
@@ -198,7 +202,7 @@ Status mapping:
 # Login (admin)
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"<your-admin-password>"}'
+  -d '{"email":"admin@example.com","password":"admin123"}'
 
 # Create a poll (admin token)
 curl -X POST http://localhost:8080/api/v1/polls \
