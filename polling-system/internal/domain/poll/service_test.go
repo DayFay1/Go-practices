@@ -88,24 +88,24 @@ func (r *memoryPollRepo) UpdateStatus(ctx context.Context, id int64, status stri
 func (r *memoryPollRepo) Update(ctx context.Context, id int64, input UpdateInput) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	p, ok := r.polls[id]
 	if !ok {
 		return sql.ErrNoRows
 	}
+
 	if input.Title != nil {
 		p.Title = *input.Title
 	}
-	if input.Description.Valid {
-    desc = &input.Description.Value
-}
-
-if input.StartsAt.Valid {
-    startsAt = &input.StartsAt.Value
-}
-
-if input.EndsAt.Valid {
-    endsAt = &input.EndsAt.Value
-}
+	if input.Description != nil {
+		p.Description = input.Description
+	}
+	if input.StartsAt != nil {
+		p.StartsAt = input.StartsAt
+	}
+	if input.EndsAt != nil {
+		p.EndsAt = input.EndsAt
+	}
 
 	p.UpdatedAt = time.Now()
 	return nil
