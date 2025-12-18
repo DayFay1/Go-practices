@@ -1,6 +1,6 @@
 # Polling / Voting System (Go)
 
-JSON REST API for creating polls and casting votes. The stack is Go + chi + Postgres, with JWT authentication, worker pool, metrics, and Docker support.
+JSON REST API for polls creation and vote casting. The stack is Go + chi + Postgres, with JWT authentication, worker pool, metrics, and Docker support.
 
 ## Requirements
 
