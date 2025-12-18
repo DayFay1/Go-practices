@@ -127,3 +127,30 @@ func mapVoteError(err error) error {
 	}
 	return err
 }
+func (r *VoteRepo) GetPollWindow(
+    ctx context.Context,
+    pollID int64,
+) (*time.Time, *time.Time, error) {
+
+    var startsAt, endsAt sql.NullTime
+
+    err := r.db.QueryRowContext(
+        ctx,
+        `SELECT starts_at, ends_at FROM polls WHERE id = $1`,
+        pollID,
+    ).Scan(&startsAt, &endsAt)
+
+    if err != nil {
+        return nil, nil, err
+    }
+
+    var sPtr, ePtr *time.Time
+    if startsAt.Valid {
+        sPtr = &startsAt.Time
+    }
+    if endsAt.Valid {
+        ePtr = &endsAt.Time
+    }
+
+    return sPtr, ePtr, nil
+}
