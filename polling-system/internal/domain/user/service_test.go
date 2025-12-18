@@ -123,3 +123,13 @@ func TestRegisterAndLogin(t *testing.T) {
 		t.Fatalf("expected inactive user error")
 	}
 }
+func TestLoginUserNotFound(t *testing.T) {
+	repo := newMemoryUserRepo()
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.Login(ctx, "ghost@example.com", "password")
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected invalid credentials error, got %v", err)
+	}
+}
