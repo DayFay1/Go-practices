@@ -52,8 +52,26 @@ func (h *Handler) handleVote(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 
 	if err := h.voteSvc.Vote(r.Context(), pollID, req.OptionID, userID); err != nil {
-		errorResponse(w, err)
-		return
+		switch err {
+
+		case vote.ErrPollNotActive,
+			vote.ErrPollClosed,
+			vote.ErrOptionNotInPoll:
+			errorResponse(w, apperr.BadRequest("invalid_vote", err.Error(), nil))
+			return
+
+		case vote.ErrAlreadyVoted:
+			errorResponse(w, apperr.Conflict("already_voted", err.Error(), nil))
+			return
+
+		case vote.ErrPollNotFound:
+			errorResponse(w, apperr.NotFound("poll_not_found", err.Error(), nil))
+			return
+
+		default:
+			errorResponse(w, err)
+			return
+		}
 	}
 
 	select {
