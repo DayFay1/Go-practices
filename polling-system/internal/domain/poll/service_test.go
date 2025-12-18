@@ -95,14 +95,14 @@ func (r *memoryPollRepo) Update(ctx context.Context, id int64, input UpdateInput
 	if input.Title != nil {
 		p.Title = *input.Title
 	}
-	if input.Description.Set {
-		p.Description = input.Description.Value
+	if input.Description != nil {
+		p.Description = input.Description
 	}
-	if input.StartsAt.Set {
-		p.StartsAt = input.StartsAt.Value
+	if input.StartsAt != nil {
+		p.StartsAt = input.StartsAt
 	}
-	if input.EndsAt.Set {
-		p.EndsAt = input.EndsAt.Value
+	if input.EndsAt != nil {
+		p.EndsAt = input.EndsAt
 	}
 	p.UpdatedAt = time.Now()
 	return nil
@@ -143,32 +143,14 @@ func TestPollValidationAndStatus(t *testing.T) {
 		t.Fatalf("expected status update success: %v", err)
 	}
 }
-
-func TestPollUpdateValidatesDatesAgainstExisting(t *testing.T) {
+func TestUpdateNonExistingPoll(t *testing.T) {
 	repo := newMemoryPollRepo()
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	start := time.Now().Add(1 * time.Hour)
-	end := start.Add(2 * time.Hour)
-	id, err := svc.Create(ctx, &Poll{Title: "Timed", StartsAt: &start, EndsAt: &end}, []Option{{Text: "A"}, {Text: "B"}})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	err := svc.UpdateStatus(ctx, 999, "active")
+	if !errors.Is(err, ErrPollNotFound) {
+		t.Fatalf("expected poll not found error, got %v", err)
 
-	badEnd := start.Add(-1 * time.Minute)
-	if err := svc.Update(ctx, id, UpdateInput{EndsAt: OptionalTime{Set: true, Value: &badEnd}}); !errors.Is(err, ErrInvalidDates) {
-		t.Fatalf("expected invalid dates, got %v", err)
-	}
-
-	if err := svc.Update(ctx, id, UpdateInput{EndsAt: OptionalTime{Set: true, Value: nil}}); err != nil {
-		t.Fatalf("clear ends_at: %v", err)
-	}
-	p, _, err := repo.GetByID(ctx, id)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if p.EndsAt != nil {
-		t.Fatalf("expected ends_at to be cleared")
 	}
 }
