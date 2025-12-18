@@ -253,6 +253,29 @@ type testVoteRepo struct {
 	pollRepo *testPollRepo
 }
 
+func (r *testVoteRepo) GetPollWindow(
+	ctx context.Context,
+	pollID int64,
+) (*time.Time, *time.Time, error) {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p, ok := r.pollRepo.polls[pollID]
+	if !ok {
+		return nil, nil, sql.ErrNoRows
+	}
+
+	return p.StartsAt, p.EndsAt, nil
+}
+
+func (r *testVoteRepo) GetVotesByUser(
+	ctx context.Context,
+	userID int64,
+) ([]vote.UserVote, error) {
+	return []vote.UserVote{}, nil
+}
+
 func newTestVoteRepo(pollRepo *testPollRepo) *testVoteRepo {
 	return &testVoteRepo{
 		votes:    make(map[int64]map[int64]int64),
