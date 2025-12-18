@@ -95,15 +95,18 @@ func (r *memoryPollRepo) Update(ctx context.Context, id int64, input UpdateInput
 	if input.Title != nil {
 		p.Title = *input.Title
 	}
-	if input.Description != nil {
-		p.Description = input.Description
-	}
-	if input.StartsAt != nil {
-		p.StartsAt = input.StartsAt
-	}
-	if input.EndsAt != nil {
-		p.EndsAt = input.EndsAt
-	}
+	if input.Description.Valid {
+    desc = &input.Description.Value
+}
+
+if input.StartsAt.Valid {
+    startsAt = &input.StartsAt.Value
+}
+
+if input.EndsAt.Valid {
+    endsAt = &input.EndsAt.Value
+}
+
 	p.UpdatedAt = time.Now()
 	return nil
 }
