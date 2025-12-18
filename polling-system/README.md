@@ -92,11 +92,29 @@ Tables: `users`, `polls`, `options`, `votes`, `aggregated_results`, indexes, and
 
 ## Run the API locally
 
+Recommended: copy `.env.example` to `.env`, set `JWT_SECRET`, then:
+
 ```bash
+go run ./cmd/server
+```
+
+Or via env vars:
+
+```bash
+# Bash
 export APP_PORT=8080
 export DB_DSN="postgres://polling_user:polling_pass@localhost:5432/polling_db?sslmode=disable"
 export JWT_SECRET="super-secret-change-me"
 export JWT_ISSUER="polling-system"
+go run ./cmd/server
+```
+
+```powershell
+# PowerShell
+$env:APP_PORT="8080"
+$env:DB_DSN="postgres://polling_user:polling_pass@localhost:5432/polling_db?sslmode=disable"
+$env:JWT_SECRET="super-secret-change-me"
+$env:JWT_ISSUER="polling-system"
 go run ./cmd/server
 ```
 

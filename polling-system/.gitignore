@@ -1,5 +1,23 @@
 .env
+.env.*
+!.env.example
 .alpackages/
 .snapshots/
 *.log
 coverage.out
+*.out
+*.test
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+
+# Build output
+bin/
+dist/
