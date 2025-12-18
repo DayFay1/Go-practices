@@ -113,7 +113,7 @@ Build and run the app container (expects the `db` compose service):
 
 ```bash
 docker build -t polling-system .
-docker run --rm -p 8080:8080 --env DB_DSN="postgres://polling_user:polling_pass@db:5432/polling_db?sslmode=disable" polling-system
+docker run --rm -p 8080:8080 --env DB_DSN="postgres://polling_user:polling_pass@db:5432/polling_db?sslmode=disable" --env JWT_SECRET="super-secret-change-me" polling-system
 ```
 
 ## Testing
@@ -172,7 +172,7 @@ Status mapping:
 - Rate limiting on the vote endpoint (per-IP limiter) plus CORS and structured request logging.
 - Worker pool consumes vote events and updates aggregated results with retry + backoff.
 - Prometheus counter `polling_http_requests_total` (method/path/status) exposed at `/metrics`.
-- Graceful shutdown handles SIGINT/SIGTERM and drains the worker pool.
+- Graceful shutdown handles SIGINT/SIGTERM, closes the vote channel, and waits for the worker pool to drain (with timeout).
 
 ## Example curl calls
 

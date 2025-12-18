@@ -302,6 +302,12 @@ func (r *testVoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int64
 	return m, total, nil
 }
 
+func (r *testVoteRepo) TotalVotes(ctx context.Context, pollID int64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return int64(len(r.votes[pollID])), nil
+}
+
 func (r *testVoteRepo) AggregatedByPoll(ctx context.Context, pollID int64) (map[int64]int64, int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -547,6 +553,148 @@ func TestDeactivatedUserTokenRejected(t *testing.T) {
 	errPayload := decodeError(t, resp2)
 	if errPayload["error"] != "inactive_user" {
 		t.Fatalf("expected inactive_user error, got %q", errPayload["error"])
+	}
+}
+
+func TestAdminUsersCRUD(t *testing.T) {
+	server, userRepo, _, _, cleanup := setupServer(t)
+	defer cleanup()
+
+	adminID := seedUserWithPassword(t, userRepo, "admin@test.com", "admin", "pass123")
+	userID := seedUserWithPassword(t, userRepo, "user@test.com", "user", "pass123")
+
+	adminToken := loginAndToken(t, server.URL, "admin@test.com", "pass123")
+
+	listReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/users", nil)
+	listReq.Header.Set("Authorization", "Bearer "+adminToken)
+	listResp, err := http.DefaultClient.Do(listReq)
+	if err != nil {
+		t.Fatalf("list users request: %v", err)
+	}
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for list users, got %d", listResp.StatusCode)
+	}
+
+	var usersList []user.User
+	if err := json.NewDecoder(listResp.Body).Decode(&usersList); err != nil {
+		t.Fatalf("decode users list: %v", err)
+	}
+	if len(usersList) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(usersList))
+	}
+	emails := make(map[string]bool, len(usersList))
+	for _, u := range usersList {
+		emails[u.Email] = true
+		if u.PasswordHash != "" {
+			t.Fatalf("password hash must not be returned in API response")
+		}
+	}
+	if !emails["admin@test.com"] || !emails["user@test.com"] {
+		t.Fatalf("unexpected users list: %+v", usersList)
+	}
+
+	// update role user -> admin
+	body, _ := json.Marshal(updateRoleRequest{Role: "admin"})
+	roleReq, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/v1/users/"+itoa(userID)+"/role", bytes.NewReader(body))
+	roleReq.Header.Set("Authorization", "Bearer "+adminToken)
+	roleReq.Header.Set("Content-Type", "application/json")
+	roleResp, err := http.DefaultClient.Do(roleReq)
+	if err != nil {
+		t.Fatalf("update role request: %v", err)
+	}
+	roleResp.Body.Close()
+	if roleResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 for update role, got %d", roleResp.StatusCode)
+	}
+
+	// sanity check: cannot update the seeded admin to an invalid role
+	badBody, _ := json.Marshal(updateRoleRequest{Role: "superadmin"})
+	badRoleReq, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/v1/users/"+itoa(adminID)+"/role", bytes.NewReader(badBody))
+	badRoleReq.Header.Set("Authorization", "Bearer "+adminToken)
+	badRoleReq.Header.Set("Content-Type", "application/json")
+	badRoleResp, err := http.DefaultClient.Do(badRoleReq)
+	if err != nil {
+		t.Fatalf("bad update role request: %v", err)
+	}
+	defer badRoleResp.Body.Close()
+	if badRoleResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid role, got %d", badRoleResp.StatusCode)
+	}
+}
+
+func TestPatchPollCanClearEndsAt(t *testing.T) {
+	server, userRepo, _, _, cleanup := setupServer(t)
+	defer cleanup()
+
+	seedUserWithPassword(t, userRepo, "admin@test.com", "admin", "pass123")
+	adminToken := loginAndToken(t, server.URL, "admin@test.com", "pass123")
+
+	start := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	end := start.Add(1 * time.Hour)
+
+	pollID := createPollViaAPI(t, server.URL, adminToken, createPollRequest{
+		Title:    "Timed poll",
+		StartsAt: strPtr(start.Format(time.RFC3339)),
+		EndsAt:   strPtr(end.Format(time.RFC3339)),
+		Options:  []string{"A", "B"},
+	})
+
+	patchReq, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/v1/polls/"+itoa(pollID), bytes.NewReader([]byte(`{"ends_at":null}`)))
+	patchReq.Header.Set("Authorization", "Bearer "+adminToken)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil {
+		t.Fatalf("patch poll request: %v", err)
+	}
+	patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 for patch, got %d", patchResp.StatusCode)
+	}
+
+	getReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/polls/"+itoa(pollID), nil)
+	getReq.Header.Set("Authorization", "Bearer "+adminToken)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("get poll request: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for get poll, got %d", getResp.StatusCode)
+	}
+
+	var payload pollDetailsResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode poll: %v", err)
+	}
+	if payload.Poll == nil {
+		t.Fatalf("expected poll payload")
+	}
+	if payload.Poll.EndsAt != nil {
+		t.Fatalf("expected ends_at to be cleared, got %v", payload.Poll.EndsAt)
+	}
+}
+
+func TestPollResultsNotFound(t *testing.T) {
+	server, userRepo, _, _, cleanup := setupServer(t)
+	defer cleanup()
+
+	seedUserWithPassword(t, userRepo, "user@test.com", "user", "pass123")
+	token := loginAndToken(t, server.URL, "user@test.com", "pass123")
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/polls/9999/results", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("results request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for results not found, got %d", resp.StatusCode)
+	}
+	errPayload := decodeError(t, resp)
+	if errPayload["error"] != "poll_not_found" {
+		t.Fatalf("expected poll_not_found error, got %q", errPayload["error"])
 	}
 }
 

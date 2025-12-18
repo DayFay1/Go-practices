@@ -2,6 +2,7 @@ package vote
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -57,7 +58,7 @@ func (r *memoryVoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int
 	return res, total, nil
 }
 
-func (r *memoryVoteRepo) TotalByPoll(ctx context.Context, pollID int64) (int64, error) {
+func (r *memoryVoteRepo) TotalVotes(ctx context.Context, pollID int64) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var total int64
@@ -96,12 +97,12 @@ func (r *memoryVoteRepo) GetPollStatus(ctx context.Context, pollID int64) (strin
 	if status, ok := r.pollStatus[pollID]; ok {
 		return status, nil
 	}
-	// default to active for tests if not preset
-	return "active", nil
+	return "", sql.ErrNoRows
 }
 
 func TestVoteIdempotencyAndCache(t *testing.T) {
 	repo := newMemoryVoteRepo()
+	repo.pollStatus[1] = "active"
 	svc := NewService(repo)
 	svc.cacheTTL = time.Hour
 	ctx := context.Background()
@@ -148,6 +149,7 @@ func TestVoteRejectsWhenPollNotActive(t *testing.T) {
 
 func TestResultsFallsBackWhenAggregatesStale(t *testing.T) {
 	repo := newMemoryVoteRepo()
+	repo.pollStatus[1] = "active"
 	svc := NewService(repo)
 	svc.cacheTTL = time.Hour
 	ctx := context.Background()

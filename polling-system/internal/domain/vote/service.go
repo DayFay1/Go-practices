@@ -84,6 +84,13 @@ type Result struct {
 }
 
 func (s *Service) Results(ctx context.Context, pollID int64) ([]Result, int64, error) {
+	if _, err := s.repo.GetPollStatus(ctx, pollID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, 0, ErrPollNotFound
+		}
+		return nil, 0, err
+	}
+
 	if cached, ok := s.getCached(pollID); ok {
 		return cached.results, cached.total, nil
 	}
@@ -93,30 +100,21 @@ func (s *Service) Results(ctx context.Context, pollID int64) ([]Result, int64, e
 		return nil, 0, err
 	}
 
+	totalReal, err := s.repo.TotalVotes(ctx, pollID)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	counts := aggCounts
 	total := aggTotal
 
-	type totalByPoller interface {
-		TotalByPoll(ctx context.Context, pollID int64) (int64, error)
-	}
-	if tRepo, ok := s.repo.(totalByPoller); ok {
-		actualTotal, err := tRepo.TotalByPoll(ctx, pollID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if actualTotal != aggTotal {
-			counts, total, err = s.repo.CountByPoll(ctx, pollID)
-			if err != nil {
-				return nil, 0, err
-			}
-		} else {
-			total = actualTotal
-		}
-	} else if len(aggCounts) == 0 && aggTotal == 0 {
+	if totalReal != aggTotal {
 		counts, total, err = s.repo.CountByPoll(ctx, pollID)
 		if err != nil {
 			return nil, 0, err
 		}
+	} else {
+		total = totalReal
 	}
 
 	results := make([]Result, 0, len(counts))

@@ -59,7 +59,7 @@ func (r *VoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int64]int
 	return res, total, nil
 }
 
-func (r *VoteRepo) TotalByPoll(ctx context.Context, pollID int64) (int64, error) {
+func (r *VoteRepo) TotalVotes(ctx context.Context, pollID int64) (int64, error) {
 	var total int64
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM votes WHERE poll_id = $1`, pollID).Scan(&total)
 	return total, err
