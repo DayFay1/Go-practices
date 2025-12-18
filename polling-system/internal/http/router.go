@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -27,6 +28,7 @@ type Handler struct {
 	pollSvc *poll.Service
 	voteSvc *vote.Service
 	jwtMgr  *jwtpkg.Manager
+	agg     worker.Aggregator
 	voteCh  chan<- worker.VoteEvent
 	db      *sql.DB
 }
@@ -36,21 +38,24 @@ func NewRouter(
 	pollSvc *poll.Service,
 	voteSvc *vote.Service,
 	jwtMgr *jwtpkg.Manager,
+	agg worker.Aggregator,
 	voteCh chan<- worker.VoteEvent,
 	db *sql.DB,
+	trustedProxies []netip.Prefix,
 ) http.Handler {
 	h := &Handler{
 		userSvc: userSvc,
 		pollSvc: pollSvc,
 		voteSvc: voteSvc,
 		jwtMgr:  jwtMgr,
+		agg:     agg,
 		voteCh:  voteCh,
 		db:      db,
 	}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	r.Use(RealIPMiddleware(trustedProxies))
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(RequestLogger)
@@ -68,7 +73,7 @@ func NewRouter(
 		r.Post("/auth/login", h.handleLogin)
 
 		r.Group(func(r chi.Router) {
-			r.Use(AuthMiddleware(jwtMgr))
+			r.Use(AuthMiddleware(jwtMgr, userSvc))
 
 			r.Get("/polls", h.handleListPolls)
 			r.Get("/polls/{id}", h.handleGetPoll)

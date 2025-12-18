@@ -22,9 +22,11 @@ JSON REST API for creating polls and casting votes. The stack is Go + chi + Post
 ## Quickstart (Docker Compose)
 
 This repo ships with `docker-compose.yml` that runs:
-- `db` – Postgres (user/pass: `polling_user` / `polling_pass`, db: `polling_db`)
-- `api` – the Go HTTP server on `http://localhost:8080`
-- `migrate` – a one-off utility container (golang-migrate) to run DB migrations
+- `db` - Postgres (user/pass: `polling_user` / `polling_pass`, db: `polling_db`)
+- `api` - the Go HTTP server on `http://localhost:8080`
+- `migrate` - a one-off utility container (golang-migrate) to run DB migrations
+
+Before running, create `.env` from `.env.example` (at minimum `JWT_SECRET` is required).
 
 ### First start (fresh DB)
 
@@ -66,11 +68,12 @@ docker compose up -d --build
 
 ### Environment
 
-The API reads `.env` (or container env vars):
+The API reads `.env` (or container env vars). You can start by copying `.env.example` to `.env`.
 - `APP_PORT` (default `8080`)
 - `DB_DSN` (compose default: `postgres://polling_user:polling_pass@db:5432/polling_db?sslmode=disable`)
-- `JWT_SECRET` (set your own secret in prod)
+- `JWT_SECRET` (required)
 - `JWT_ISSUER` (default `polling-system`)
+- `TRUSTED_PROXIES` (optional, comma-separated CIDRs; enables trusting `X-Forwarded-For` only from those proxies)
 
 ## Migrations (golang-migrate CLI)
 

@@ -150,20 +150,32 @@ func (r *PollRepo) Update(ctx context.Context, id int64, input poll.UpdateInput)
 		args = append(args, *input.Title)
 		idx++
 	}
-	if input.Description != nil {
-		setParts = append(setParts, fmt.Sprintf("description = $%d", idx))
-		args = append(args, *input.Description)
-		idx++
+	if input.Description.Set {
+		if input.Description.Value == nil {
+			setParts = append(setParts, "description = NULL")
+		} else {
+			setParts = append(setParts, fmt.Sprintf("description = $%d", idx))
+			args = append(args, *input.Description.Value)
+			idx++
+		}
 	}
-	if input.StartsAt != nil {
-		setParts = append(setParts, fmt.Sprintf("starts_at = $%d", idx))
-		args = append(args, *input.StartsAt)
-		idx++
+	if input.StartsAt.Set {
+		if input.StartsAt.Value == nil {
+			setParts = append(setParts, "starts_at = NULL")
+		} else {
+			setParts = append(setParts, fmt.Sprintf("starts_at = $%d", idx))
+			args = append(args, *input.StartsAt.Value)
+			idx++
+		}
 	}
-	if input.EndsAt != nil {
-		setParts = append(setParts, fmt.Sprintf("ends_at = $%d", idx))
-		args = append(args, *input.EndsAt)
-		idx++
+	if input.EndsAt.Set {
+		if input.EndsAt.Value == nil {
+			setParts = append(setParts, "ends_at = NULL")
+		} else {
+			setParts = append(setParts, fmt.Sprintf("ends_at = $%d", idx))
+			args = append(args, *input.EndsAt.Value)
+			idx++
+		}
 	}
 
 	if len(setParts) == 0 {

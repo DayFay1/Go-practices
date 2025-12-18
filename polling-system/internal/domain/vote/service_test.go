@@ -57,6 +57,16 @@ func (r *memoryVoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int
 	return res, total, nil
 }
 
+func (r *memoryVoteRepo) TotalByPoll(ctx context.Context, pollID int64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var total int64
+	for _, c := range r.votes[pollID] {
+		total += c
+	}
+	return total, nil
+}
+
 func (r *memoryVoteRepo) AggregatedByPoll(ctx context.Context, pollID int64) (map[int64]int64, int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -133,5 +143,40 @@ func TestVoteRejectsWhenPollNotActive(t *testing.T) {
 
 	if err := svc.Vote(ctx, 1, 10, 1); !errors.Is(err, ErrPollNotActive) {
 		t.Fatalf("expected poll not active error, got %v", err)
+	}
+}
+
+func TestResultsFallsBackWhenAggregatesStale(t *testing.T) {
+	repo := newMemoryVoteRepo()
+	svc := NewService(repo)
+	svc.cacheTTL = time.Hour
+	ctx := context.Background()
+
+	if err := svc.Vote(ctx, 1, 10, 1); err != nil {
+		t.Fatalf("vote 1: %v", err)
+	}
+	if err := svc.Vote(ctx, 1, 11, 2); err != nil {
+		t.Fatalf("vote 2: %v", err)
+	}
+	if err := repo.IncrementAggregated(ctx, 1, 10); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+
+	results, total, err := svc.Results(ctx, 1)
+	if err != nil {
+		t.Fatalf("results error: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected total 2, got %d", total)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 options, got %d", len(results))
+	}
+	byOption := make(map[int64]int64, 2)
+	for _, r := range results {
+		byOption[r.OptionID] = r.Votes
+	}
+	if byOption[10] != 1 || byOption[11] != 1 {
+		t.Fatalf("unexpected results %+v", results)
 	}
 }

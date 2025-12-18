@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/time/rate"
 
+	"polling-system/internal/domain/user"
 	"polling-system/internal/metrics"
 	"polling-system/internal/platform/apperr"
 	jwtpkg "polling-system/internal/platform/jwt"
@@ -33,7 +37,11 @@ func SetLogger(l *slog.Logger) {
 	}
 }
 
-func AuthMiddleware(jm *jwtpkg.Manager) func(http.Handler) http.Handler {
+type UserLookup interface {
+	GetByID(ctx context.Context, id int64) (*user.User, error)
+}
+
+func AuthMiddleware(jm *jwtpkg.Manager, users UserLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -52,6 +60,24 @@ func AuthMiddleware(jm *jwtpkg.Manager) func(http.Handler) http.Handler {
 			if err != nil {
 				errorResponse(w, apperr.Unauthorized("invalid_token", "invalid token", err))
 				return
+			}
+
+			if users != nil {
+				u, err := users.GetByID(r.Context(), claims.UserID)
+				if err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						errorResponse(w, apperr.Unauthorized("invalid_token", "invalid token", err))
+						return
+					}
+					errorResponse(w, apperr.Internal("internal_error", "failed to authorize", err))
+					return
+				}
+				if !u.IsActive {
+					errorResponse(w, user.ErrInactiveUser)
+					return
+				}
+				claims.UserID = u.ID
+				claims.Role = u.Role
 			}
 
 			ctx := context.WithValue(r.Context(), ctxKeyUserID, claims.UserID)
@@ -186,13 +212,84 @@ func (l *ipRateLimiter) allow(ip string) bool {
 }
 
 func clientIP(r *http.Request) string {
-	if xfwd := r.Header.Get("X-Forwarded-For"); xfwd != "" {
-		parts := strings.Split(xfwd, ",")
-		return strings.TrimSpace(parts[0])
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func RealIPMiddleware(trustedProxies []netip.Prefix) func(http.Handler) http.Handler {
+	if len(trustedProxies) == 0 {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			remoteIP := remoteAddrIP(r.RemoteAddr)
+			if !remoteIP.IsValid() || !isTrustedProxy(remoteIP, trustedProxies) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				if ip := parseFirstForwardedFor(fwd); ip.IsValid() {
+					r.RemoteAddr = ip.String()
+				}
+			} else if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+				if ip := parseIP(realIP); ip.IsValid() {
+					r.RemoteAddr = ip.String()
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func remoteAddrIP(remoteAddr string) netip.Addr {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return parseIP(host)
+	}
+	return parseIP(remoteAddr)
+}
+
+func parseFirstForwardedFor(xff string) netip.Addr {
+	for _, part := range strings.Split(xff, ",") {
+		ip := parseIP(part)
+		if ip.IsValid() {
+			return ip
+		}
+	}
+	return netip.Addr{}
+}
+
+func parseIP(s string) netip.Addr {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "[") && strings.Contains(s, "]") {
+		s = strings.TrimPrefix(s, "[")
+		s = strings.TrimSuffix(s, "]")
+	}
+	ip, err := netip.ParseAddr(s)
+	if err == nil {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		return netip.Addr{}
+	}
+	ip, err = netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip
+}
+
+func isTrustedProxy(ip netip.Addr, trustedProxies []netip.Prefix) bool {
+	for _, p := range trustedProxies {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"polling-system/internal/domain/poll"
 	"polling-system/internal/platform/apperr"
@@ -21,10 +22,10 @@ type updateStatusRequest struct {
 }
 
 type updatePollRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	StartsAt    *string `json:"starts_at"`
-	EndsAt      *string `json:"ends_at"`
+	Title       *string        `json:"title"`
+	Description optionalString `json:"description,omitempty"`
+	StartsAt    optionalString `json:"starts_at,omitempty"`
+	EndsAt      optionalString `json:"ends_at,omitempty"`
 }
 
 type pollDetailsResponse struct {
@@ -221,29 +222,44 @@ func (h *Handler) handleUpdatePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startsAt := parseTimePtr(req.StartsAt)
-	if req.StartsAt != nil && *req.StartsAt != "" && startsAt == nil {
-		errorResponse(w, apperr.BadRequest("invalid_input", "invalid starts_at format", nil))
-		return
-	}
-	endsAt := parseTimePtr(req.EndsAt)
-	if req.EndsAt != nil && *req.EndsAt != "" && endsAt == nil {
-		errorResponse(w, apperr.BadRequest("invalid_input", "invalid ends_at format", nil))
-		return
-	}
-	if startsAt != nil && endsAt != nil && endsAt.Before(*startsAt) {
-		errorResponse(w, apperr.BadRequest("invalid_dates", "ends_at must be after starts_at", nil))
-		return
+	var startsAt poll.OptionalTime
+	startsAt.Set = req.StartsAt.Set
+	if req.StartsAt.Set {
+		if req.StartsAt.Value == nil || *req.StartsAt.Value == "" {
+			startsAt.Value = nil
+		} else {
+			t, err := time.Parse(time.RFC3339, *req.StartsAt.Value)
+			if err != nil {
+				errorResponse(w, apperr.BadRequest("invalid_input", "invalid starts_at format", err))
+				return
+			}
+			startsAt.Value = &t
+		}
 	}
 
-	if req.Title == nil && req.Description == nil && startsAt == nil && endsAt == nil {
+	var endsAt poll.OptionalTime
+	endsAt.Set = req.EndsAt.Set
+	if req.EndsAt.Set {
+		if req.EndsAt.Value == nil || *req.EndsAt.Value == "" {
+			endsAt.Value = nil
+		} else {
+			t, err := time.Parse(time.RFC3339, *req.EndsAt.Value)
+			if err != nil {
+				errorResponse(w, apperr.BadRequest("invalid_input", "invalid ends_at format", err))
+				return
+			}
+			endsAt.Value = &t
+		}
+	}
+
+	if req.Title == nil && !req.Description.Set && !startsAt.Set && !endsAt.Set {
 		errorResponse(w, apperr.BadRequest("invalid_input", "no fields to update", nil))
 		return
 	}
 
 	input := poll.UpdateInput{
 		Title:       req.Title,
-		Description: req.Description,
+		Description: poll.OptionalString{Set: req.Description.Set, Value: req.Description.Value},
 		StartsAt:    startsAt,
 		EndsAt:      endsAt,
 	}

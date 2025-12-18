@@ -49,8 +49,17 @@ func (w *StatsWorker) Run(ctx context.Context) {
 		}(i)
 	}
 
-	<-ctx.Done()
-	wg.Wait()
+	workersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(workersDone)
+	}()
+
+	select {
+	case <-ctx.Done():
+		<-workersDone
+	case <-workersDone:
+	}
 	w.logger.Info("stats worker pool stopped")
 }
 
@@ -76,5 +85,5 @@ func (w *StatsWorker) process(ctx context.Context, workerID int, ev VoteEvent) {
 		w.logger.Error("failed to aggregate vote", "worker", workerID, "poll_id", ev.PollID, "option_id", ev.OptionID, "error", err)
 		return
 	}
-	w.logger.Info("aggregated vote", "worker", workerID, "poll_id", ev.PollID, "option_id", ev.OptionID, "user_id", ev.UserID)
+	w.logger.Debug("aggregated vote", "worker", workerID, "poll_id", ev.PollID, "option_id", ev.OptionID, "user_id", ev.UserID)
 }

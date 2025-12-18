@@ -26,9 +26,19 @@ type Option struct {
 
 type UpdateInput struct {
 	Title       *string
-	Description *string
-	StartsAt    *time.Time
-	EndsAt      *time.Time
+	Description OptionalString
+	StartsAt    OptionalTime
+	EndsAt      OptionalTime
+}
+
+type OptionalString struct {
+	Set   bool
+	Value *string
+}
+
+type OptionalTime struct {
+	Set   bool
+	Value *time.Time
 }
 
 type Repository interface {

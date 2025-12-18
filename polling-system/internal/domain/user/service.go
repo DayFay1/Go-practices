@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 
 	"golang.org/x/crypto/bcrypt"
@@ -28,6 +29,8 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 
 	if _, err := s.repo.GetByEmail(ctx, email); err == nil {
 		return nil, ErrEmailTaken
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -52,7 +55,10 @@ func (s *Service) Register(ctx context.Context, email, password string) (*User, 
 func (s *Service) Login(ctx context.Context, email, password string) (*User, error) {
 	u, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
-		return nil, ErrInvalidCredentials
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
 	}
 
 	if !u.IsActive {

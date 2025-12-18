@@ -212,14 +212,14 @@ func (r *testPollRepo) Update(ctx context.Context, id int64, input poll.UpdateIn
 	if input.Title != nil {
 		p.Title = *input.Title
 	}
-	if input.Description != nil {
-		p.Description = input.Description
+	if input.Description.Set {
+		p.Description = input.Description.Value
 	}
-	if input.StartsAt != nil {
-		p.StartsAt = input.StartsAt
+	if input.StartsAt.Set {
+		p.StartsAt = input.StartsAt.Value
 	}
-	if input.EndsAt != nil {
-		p.EndsAt = input.EndsAt
+	if input.EndsAt.Set {
+		p.EndsAt = input.EndsAt.Value
 	}
 	p.UpdatedAt = time.Now()
 	return nil
@@ -347,7 +347,7 @@ func setupServer(t *testing.T) (*httptest.Server, *testUserRepo, *testPollRepo, 
 	jwtMgr := jwtpkg.NewManager("secret", "test-issuer")
 	voteCh := make(chan worker.VoteEvent, 100)
 
-	server := httptest.NewServer(NewRouter(userSvc, pollSvc, voteSvc, jwtMgr, voteCh, &sql.DB{}))
+	server := httptest.NewServer(NewRouter(userSvc, pollSvc, voteSvc, jwtMgr, voteRepo, voteCh, &sql.DB{}, nil))
 	cleanup := func() {
 		server.Close()
 		close(voteCh)
@@ -502,6 +502,54 @@ func TestRBACForUserRole(t *testing.T) {
 	}
 }
 
+func TestDeactivatedUserTokenRejected(t *testing.T) {
+	server, userRepo, _, _, cleanup := setupServer(t)
+	defer cleanup()
+
+	seedUserWithPassword(t, userRepo, "admin@test.com", "admin", "pass123")
+	userID := seedUserWithPassword(t, userRepo, "user@test.com", "user", "pass123")
+
+	adminToken := loginAndToken(t, server.URL, "admin@test.com", "pass123")
+	userToken := loginAndToken(t, server.URL, "user@test.com", "pass123")
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/polls", nil)
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("poll list request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 before deactivation, got %d", resp.StatusCode)
+	}
+
+	deactivateReq, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/v1/users/"+itoa(userID)+"/deactivate", nil)
+	deactivateReq.Header.Set("Authorization", "Bearer "+adminToken)
+	deactivateResp, err := http.DefaultClient.Do(deactivateReq)
+	if err != nil {
+		t.Fatalf("deactivate request: %v", err)
+	}
+	deactivateResp.Body.Close()
+	if deactivateResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 for deactivate, got %d", deactivateResp.StatusCode)
+	}
+
+	req2, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/polls", nil)
+	req2.Header.Set("Authorization", "Bearer "+userToken)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("poll list request after deactivation: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 after deactivation, got %d", resp2.StatusCode)
+	}
+	errPayload := decodeError(t, resp2)
+	if errPayload["error"] != "inactive_user" {
+		t.Fatalf("expected inactive_user error, got %q", errPayload["error"])
+	}
+}
+
 func TestVoteIdempotencyAndConflicts(t *testing.T) {
 	server, userRepo, pollRepo, _, cleanup := setupServer(t)
 	defer cleanup()
@@ -602,7 +650,7 @@ func TestPollNotFoundPatchAndDelete(t *testing.T) {
 	seedUserWithPassword(t, userRepo, "admin@test.com", "admin", "pass123")
 	adminToken := loginAndToken(t, server.URL, "admin@test.com", "pass123")
 
-	body, _ := json.Marshal(updatePollRequest{Title: strPtr("new title")})
+	body, _ := json.Marshal(map[string]any{"title": "new title"})
 	req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/v1/polls/9999", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+adminToken)
 	req.Header.Set("Content-Type", "application/json")

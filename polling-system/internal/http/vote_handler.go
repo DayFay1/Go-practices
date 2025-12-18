@@ -59,6 +59,15 @@ func (h *Handler) handleVote(w http.ResponseWriter, r *http.Request) {
 	select {
 	case h.voteCh <- worker.VoteEvent{PollID: pollID, OptionID: req.OptionID, UserID: userID}:
 	default:
+		if h.agg == nil {
+			slogLogger.Warn("vote event queue full; event dropped", "poll_id", pollID, "option_id", req.OptionID, "user_id", userID)
+			break
+		}
+		if err := h.agg.IncrementAggregated(r.Context(), pollID, req.OptionID); err != nil {
+			slogLogger.Warn("vote event queue full; failed to aggregate synchronously", "poll_id", pollID, "option_id", req.OptionID, "user_id", userID, "error", err)
+			break
+		}
+		slogLogger.Warn("vote event queue full; aggregated synchronously", "poll_id", pollID, "option_id", req.OptionID, "user_id", userID)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

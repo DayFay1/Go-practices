@@ -1,0 +1,5 @@
+.env
+.alpackages/
+.snapshots/
+*.log
+coverage.out

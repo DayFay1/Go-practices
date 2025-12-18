@@ -57,7 +57,7 @@ func main() {
 	voteCh := make(chan worker.VoteEvent, 100)
 	statsWorker := worker.NewStatsWorker(voteCh, voteRepo, logger)
 
-	router := api.NewRouter(userSvc, pollSvc, voteSvc, jwtMgr, voteCh, db)
+	router := api.NewRouter(userSvc, pollSvc, voteSvc, jwtMgr, voteRepo, voteCh, db, cfg.TrustedProxies)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -96,12 +96,12 @@ func main() {
 	}
 
 	close(voteCh)
-	workerCancel()
 
 	select {
 	case <-workerDone:
 	case <-shutdownCtx.Done():
 		logger.Warn("worker shutdown timed out")
+		workerCancel()
 	}
 
 	logger.Info("server stopped")

@@ -16,10 +16,13 @@ var (
 )
 
 type Service struct {
-	repo     Repository
-	cacheTTL time.Duration
-	cache    map[int64]cachedResult
-	mu       sync.RWMutex
+	repo                 Repository
+	cacheTTL             time.Duration
+	cacheCleanupInterval time.Duration
+	cacheMaxEntries      int
+	cache                map[int64]cachedResult
+	lastCleanup          time.Time
+	mu                   sync.RWMutex
 }
 
 type cachedResult struct {
@@ -30,9 +33,11 @@ type cachedResult struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{
-		repo:     repo,
-		cacheTTL: 10 * time.Second,
-		cache:    make(map[int64]cachedResult),
+		repo:                 repo,
+		cacheTTL:             10 * time.Second,
+		cacheCleanupInterval: time.Minute,
+		cacheMaxEntries:      1024,
+		cache:                make(map[int64]cachedResult),
 	}
 }
 
@@ -83,12 +88,31 @@ func (s *Service) Results(ctx context.Context, pollID int64) ([]Result, int64, e
 		return cached.results, cached.total, nil
 	}
 
-	counts, total, err := s.repo.AggregatedByPoll(ctx, pollID)
+	aggCounts, aggTotal, err := s.repo.AggregatedByPoll(ctx, pollID)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if len(counts) == 0 && total == 0 {
+	counts := aggCounts
+	total := aggTotal
+
+	type totalByPoller interface {
+		TotalByPoll(ctx context.Context, pollID int64) (int64, error)
+	}
+	if tRepo, ok := s.repo.(totalByPoller); ok {
+		actualTotal, err := tRepo.TotalByPoll(ctx, pollID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if actualTotal != aggTotal {
+			counts, total, err = s.repo.CountByPoll(ctx, pollID)
+			if err != nil {
+				return nil, 0, err
+			}
+		} else {
+			total = actualTotal
+		}
+	} else if len(aggCounts) == 0 && aggTotal == 0 {
 		counts, total, err = s.repo.CountByPoll(ctx, pollID)
 		if err != nil {
 			return nil, 0, err
@@ -114,9 +138,17 @@ func (s *Service) Results(ctx context.Context, pollID int64) ([]Result, int64, e
 
 func (s *Service) getCached(pollID int64) (cachedResult, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	res, ok := s.cache[pollID]
-	if !ok || time.Now().After(res.expiresAt) {
+	s.mu.RUnlock()
+	if !ok {
+		return cachedResult{}, false
+	}
+	if time.Now().After(res.expiresAt) {
+		s.mu.Lock()
+		if res2, ok2 := s.cache[pollID]; ok2 && time.Now().After(res2.expiresAt) {
+			delete(s.cache, pollID)
+		}
+		s.mu.Unlock()
 		return cachedResult{}, false
 	}
 	return res, true
@@ -125,6 +157,7 @@ func (s *Service) getCached(pollID int64) (cachedResult, bool) {
 func (s *Service) setCached(pollID int64, results []Result, total int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupCacheLocked()
 	s.cache[pollID] = cachedResult{
 		results:   results,
 		total:     total,
@@ -136,4 +169,29 @@ func (s *Service) invalidateCache(pollID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.cache, pollID)
+}
+
+func (s *Service) cleanupCacheLocked() {
+	now := time.Now()
+	runFullCleanup := s.lastCleanup.IsZero() || now.Sub(s.lastCleanup) >= s.cacheCleanupInterval
+	if runFullCleanup {
+		s.lastCleanup = now
+	}
+
+	if runFullCleanup || (s.cacheMaxEntries > 0 && len(s.cache) > s.cacheMaxEntries) {
+		for k, v := range s.cache {
+			if now.After(v.expiresAt) {
+				delete(s.cache, k)
+			}
+		}
+	}
+
+	if s.cacheMaxEntries > 0 {
+		for len(s.cache) > s.cacheMaxEntries {
+			for k := range s.cache {
+				delete(s.cache, k)
+				break
+			}
+		}
+	}
 }

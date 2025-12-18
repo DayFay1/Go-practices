@@ -58,11 +58,31 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) error
 	if input.Title != nil && *input.Title == "" {
 		return errors.New("title required")
 	}
-	if input.StartsAt != nil && input.EndsAt != nil && input.EndsAt.Before(*input.StartsAt) {
-		return ErrInvalidDates
-	}
-	if input.Title == nil && input.Description == nil && input.StartsAt == nil && input.EndsAt == nil {
+
+	if input.Title == nil && !input.Description.Set && !input.StartsAt.Set && !input.EndsAt.Set {
 		return errors.New("no fields to update")
+	}
+
+	if input.StartsAt.Set || input.EndsAt.Set {
+		p, _, err := s.repo.GetByID(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPollNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		startsAt := p.StartsAt
+		endsAt := p.EndsAt
+		if input.StartsAt.Set {
+			startsAt = input.StartsAt.Value
+		}
+		if input.EndsAt.Set {
+			endsAt = input.EndsAt.Value
+		}
+		if startsAt != nil && endsAt != nil && endsAt.Before(*startsAt) {
+			return ErrInvalidDates
+		}
 	}
 
 	err := s.repo.Update(ctx, id, input)
