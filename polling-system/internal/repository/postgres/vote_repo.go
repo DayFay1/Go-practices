@@ -154,3 +154,38 @@ func (r *VoteRepo) GetPollWindow(
 
     return sPtr, ePtr, nil
 }
+func (r *VoteRepo) GetVotesByUser(
+	ctx context.Context,
+	userID int64,
+) ([]vote.UserVote, error) {
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`
+		SELECT poll_id, option_id, created_at
+		FROM votes
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []vote.UserVote
+	for rows.Next() {
+		var uv vote.UserVote
+		if err := rows.Scan(
+			&uv.PollID,
+			&uv.OptionID,
+			&uv.VotedAt,
+		); err != nil {
+			return nil, err
+		}
+		res = append(res, uv)
+	}
+
+	return res, nil
+}
