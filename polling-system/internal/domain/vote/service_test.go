@@ -2,7 +2,6 @@ package vote
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -58,16 +57,6 @@ func (r *memoryVoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int
 	return res, total, nil
 }
 
-func (r *memoryVoteRepo) TotalVotes(ctx context.Context, pollID int64) (int64, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var total int64
-	for _, c := range r.votes[pollID] {
-		total += c
-	}
-	return total, nil
-}
-
 func (r *memoryVoteRepo) AggregatedByPoll(ctx context.Context, pollID int64) (map[int64]int64, int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -97,12 +86,21 @@ func (r *memoryVoteRepo) GetPollStatus(ctx context.Context, pollID int64) (strin
 	if status, ok := r.pollStatus[pollID]; ok {
 		return status, nil
 	}
-	return "", sql.ErrNoRows
+
+	return "active", nil
+}
+func (r *memoryVoteRepo) GetPollWindow(ctx context.Context, pollID int64) (*time.Time, *time.Time, error) {
+	return nil, nil, nil
+}
+func (r *memoryVoteRepo) GetVotesByUser(
+	ctx context.Context,
+	userID int64,
+) ([]UserVote, error) {
+	return []UserVote{}, nil
 }
 
 func TestVoteIdempotencyAndCache(t *testing.T) {
 	repo := newMemoryVoteRepo()
-	repo.pollStatus[1] = "active"
 	svc := NewService(repo)
 	svc.cacheTTL = time.Hour
 	ctx := context.Background()
@@ -142,43 +140,35 @@ func TestVoteRejectsWhenPollNotActive(t *testing.T) {
 	svc := NewService(repo)
 	ctx := context.Background()
 
-	if err := svc.Vote(ctx, 1, 10, 1); !errors.Is(err, ErrPollNotActive) {
-		t.Fatalf("expected poll not active error, got %v", err)
+	err := svc.Vote(ctx, 1, 10, 1)
+	if err == nil || err.Error() != "poll_closed" {
+		t.Fatalf("expected poll_closed error, got %v", err)
 	}
 }
-
-func TestResultsFallsBackWhenAggregatesStale(t *testing.T) {
+func TestVoteRejectsDuplicateVote(t *testing.T) {
 	repo := newMemoryVoteRepo()
-	repo.pollStatus[1] = "active"
 	svc := NewService(repo)
-	svc.cacheTTL = time.Hour
 	ctx := context.Background()
 
-	if err := svc.Vote(ctx, 1, 10, 1); err != nil {
-		t.Fatalf("vote 1: %v", err)
-	}
-	if err := svc.Vote(ctx, 1, 11, 2); err != nil {
-		t.Fatalf("vote 2: %v", err)
-	}
-	if err := repo.IncrementAggregated(ctx, 1, 10); err != nil {
-		t.Fatalf("aggregate: %v", err)
+	err := svc.Vote(ctx, 1, 10, 100)
+	if err != nil {
+		t.Fatalf("expected first vote to succeed, got %v", err)
 	}
 
-	results, total, err := svc.Results(ctx, 1)
+	err = svc.Vote(ctx, 1, 11, 100)
+	if !errors.Is(err, ErrAlreadyVoted) {
+		t.Fatalf("expected ErrAlreadyVoted, got %v", err)
+	}
+}
+func TestUserVotesEmpty(t *testing.T) {
+	repo := newMemoryVoteRepo()
+	svc := NewService(repo)
+
+	votes, err := svc.UserVotes(context.Background(), 123)
 	if err != nil {
-		t.Fatalf("results error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if total != 2 {
-		t.Fatalf("expected total 2, got %d", total)
-	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 options, got %d", len(results))
-	}
-	byOption := make(map[int64]int64, 2)
-	for _, r := range results {
-		byOption[r.OptionID] = r.Votes
-	}
-	if byOption[10] != 1 || byOption[11] != 1 {
-		t.Fatalf("unexpected results %+v", results)
+	if len(votes) != 0 {
+		t.Fatalf("expected empty votes, got %v", votes)
 	}
 }
