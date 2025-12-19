@@ -8,8 +8,14 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+var (
+	sqlOpen   = sql.Open
+	timeNow   = time.Now
+	timeSleep = time.Sleep
+)
+
 func NewPostgres(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", dsn)
+	db, err := sqlOpen("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -18,7 +24,7 @@ func NewPostgres(dsn string) (*sql.DB, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(time.Hour)
 
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := timeNow().Add(15 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := db.PingContext(ctx)
@@ -26,11 +32,11 @@ func NewPostgres(dsn string) (*sql.DB, error) {
 		if err == nil {
 			break
 		}
-		if time.Now().After(deadline) {
+		if timeNow().After(deadline) {
 			_ = db.Close()
 			return nil, err
 		}
-		time.Sleep(500 * time.Millisecond)
+		timeSleep(500 * time.Millisecond)
 	}
 
 	return db, nil

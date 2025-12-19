@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"net/netip"
 	"os"
@@ -20,19 +21,32 @@ type Config struct {
 func Load() Config {
 	_ = godotenv.Load()
 
-	cfg := Config{
-		Port:           getEnv("APP_PORT", "8080"),
-		DB_DSN:         getEnv("DB_DSN", "postgres://polling_user:polling_pass@localhost:5432/polling_db?sslmode=disable"),
-		JWTSecret:      getEnv("JWT_SECRET", ""),
-		JWTIssuer:      getEnv("JWT_ISSUER", "polling-system"),
-		TrustedProxies: parseCIDRList(getEnv("TRUSTED_PROXIES", "")),
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		log.Fatal(err)
 	}
+	return cfg
+}
+
+func LoadFromEnv() (Config, error) {
+	cfg := Config{
+		Port:      getEnv("APP_PORT", "8080"),
+		DB_DSN:    getEnv("DB_DSN", "postgres://polling_user:polling_pass@localhost:5432/polling_db?sslmode=disable"),
+		JWTSecret: getEnv("JWT_SECRET", ""),
+		JWTIssuer: getEnv("JWT_ISSUER", "polling-system"),
+	}
+
+	trusted, err := parseCIDRList(getEnv("TRUSTED_PROXIES", ""))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TrustedProxies = trusted
 
 	if cfg.JWTSecret == "" {
-		log.Fatal("JWT_SECRET is required")
+		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 func getEnv(key, def string) string {
@@ -42,9 +56,9 @@ func getEnv(key, def string) string {
 	return def
 }
 
-func parseCIDRList(s string) []netip.Prefix {
+func parseCIDRList(s string) ([]netip.Prefix, error) {
 	if strings.TrimSpace(s) == "" {
-		return nil
+		return nil, nil
 	}
 	parts := strings.Split(s, ",")
 	out := make([]netip.Prefix, 0, len(parts))
@@ -55,9 +69,9 @@ func parseCIDRList(s string) []netip.Prefix {
 		}
 		prefix, err := netip.ParsePrefix(p)
 		if err != nil {
-			log.Fatalf("invalid TRUSTED_PROXIES entry %q: %v", p, err)
+			return nil, fmt.Errorf("invalid TRUSTED_PROXIES entry %q: %v", p, err)
 		}
 		out = append(out, prefix)
 	}
-	return out
+	return out, nil
 }

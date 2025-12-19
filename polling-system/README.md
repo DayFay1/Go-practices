@@ -140,6 +140,16 @@ docker run --rm -p 8080:8080 --env DB_DSN="postgres://polling_user:polling_pass@
 
 ## Testing
 
+Unit tests live mostly in:
+- `internal/domain/*/*_test.go` (services)
+- `internal/http/*_test.go` (router/middleware)
+- `internal/metrics/*_test.go`
+- `internal/config/*_test.go`
+- `internal/platform/*/*_test.go` (e.g. `apperr`, `jwt`, `database`)
+- `internal/retry/*_test.go`
+- `internal/worker/*_test.go`
+- `internal/repository/postgres/*_test.go` (via `sqlmock`)
+
 ```bash
 go test ./...
 ```

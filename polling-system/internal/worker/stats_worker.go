@@ -23,6 +23,8 @@ type StatsWorker struct {
 	Ch      <-chan VoteEvent
 	agg     Aggregator
 	workers int
+	attempts int
+	delay    time.Duration
 	logger  *slog.Logger
 }
 
@@ -31,6 +33,8 @@ func NewStatsWorker(ch <-chan VoteEvent, agg Aggregator, logger *slog.Logger) *S
 		Ch:      ch,
 		agg:     agg,
 		workers: 4,
+		attempts: 4,
+		delay:    150 * time.Millisecond,
 		logger:  logger,
 	}
 }
@@ -38,6 +42,9 @@ func NewStatsWorker(ch <-chan VoteEvent, agg Aggregator, logger *slog.Logger) *S
 func (w *StatsWorker) Run(ctx context.Context) {
 	if w.logger == nil {
 		w.logger = slog.Default()
+	}
+	if w.workers <= 0 {
+		w.workers = 4
 	}
 	w.logger.Info("stats worker pool started", "workers", w.workers)
 	var wg sync.WaitGroup
@@ -78,7 +85,16 @@ func (w *StatsWorker) loop(ctx context.Context, workerID int) {
 }
 
 func (w *StatsWorker) process(ctx context.Context, workerID int, ev VoteEvent) {
-	err := retry.DoWithRetry(ctx, 4, 150*time.Millisecond, func() error {
+	attempts := w.attempts
+	if attempts <= 0 {
+		attempts = 4
+	}
+	delay := w.delay
+	if delay <= 0 {
+		delay = 150 * time.Millisecond
+	}
+
+	err := retry.DoWithRetry(ctx, attempts, delay, func() error {
 		return w.agg.IncrementAggregated(ctx, ev.PollID, ev.OptionID)
 	})
 	if err != nil {
