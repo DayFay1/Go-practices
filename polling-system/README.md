@@ -154,6 +154,18 @@ Unit tests live mostly in:
 go test ./...
 ```
 
+End-to-end smoke test (requires Docker):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1
+```
+
+With rebuild:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1 -BuildApi
+```
+
 ## API overview
 
 Public:
