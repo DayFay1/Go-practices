@@ -102,7 +102,10 @@ type Result struct {
 func (s *Service) Results(ctx context.Context, pollID int64) ([]Result, int64, error) {
 	_, err := s.repo.GetPollStatus(ctx, pollID)
 	if err != nil {
-		return nil, 0, ErrPollNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, 0, ErrPollNotFound
+		}
+		return nil, 0, err
 	}
 	if cached, ok := s.getCached(pollID); ok {
 		return cached.results, cached.total, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -55,6 +56,9 @@ func (r *VoteRepo) CountByPoll(ctx context.Context, pollID int64) (map[int64]int
 		res[optID] = c
 		total += c
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	return res, total, nil
 }
@@ -86,6 +90,9 @@ func (r *VoteRepo) AggregatedByPoll(ctx context.Context, pollID int64) (map[int6
 		}
 		res[optID] = c
 		total += c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 	return res, total, nil
 }
@@ -127,38 +134,30 @@ func mapVoteError(err error) error {
 	}
 	return err
 }
-func (r *VoteRepo) GetPollWindow(
-    ctx context.Context,
-    pollID int64,
-) (*time.Time, *time.Time, error) {
 
-    var startsAt, endsAt sql.NullTime
+func (r *VoteRepo) GetPollWindow(ctx context.Context, pollID int64) (*time.Time, *time.Time, error) {
+	var startsAt, endsAt sql.NullTime
 
-    err := r.db.QueryRowContext(
-        ctx,
-        `SELECT starts_at, ends_at FROM polls WHERE id = $1`,
-        pollID,
-    ).Scan(&startsAt, &endsAt)
+	err := r.db.QueryRowContext(ctx, `SELECT starts_at, ends_at FROM polls WHERE id = $1`, pollID).Scan(&startsAt, &endsAt)
+	if err != nil {
+		return nil, nil, err
+	}
 
-    if err != nil {
-        return nil, nil, err
-    }
+	var startsPtr, endsPtr *time.Time
+	if startsAt.Valid {
+		startsPtr = &startsAt.Time
+	}
+	if endsAt.Valid {
+		endsPtr = &endsAt.Time
+	}
 
-    var sPtr, ePtr *time.Time
-    if startsAt.Valid {
-        sPtr = &startsAt.Time
-    }
-    if endsAt.Valid {
-        ePtr = &endsAt.Time
-    }
-
-    return sPtr, ePtr, nil
+	return startsPtr, endsPtr, nil
 }
+
 func (r *VoteRepo) GetVotesByUser(
 	ctx context.Context,
 	userID int64,
 ) ([]vote.UserVote, error) {
-
 	rows, err := r.db.QueryContext(
 		ctx,
 		`
@@ -185,6 +184,9 @@ func (r *VoteRepo) GetVotesByUser(
 			return nil, err
 		}
 		res = append(res, uv)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return res, nil
